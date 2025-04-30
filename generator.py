@@ -1,4 +1,5 @@
 import random
+import json
 import copy
 
 def is_valid(board, row, col, num):
@@ -54,6 +55,8 @@ def generate_random_solvable_board(seed_cells=17, max_attempts=1000):
             attempts += 1
 
         if is_solvable(board):
+         with open("sudoku_board.json", "w") as f:
+            json.dump(board, f)
             return board  # ✅ Return the first solvable board
     raise ValueError("Failed to generate a solvable board in time.")
 
