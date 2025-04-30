@@ -1,48 +1,95 @@
-# Sudoku board representation for CSP
-from typing import List, Set, Dict, Tuple
+from generator import generate_random_solvable_board,print_board
+from collections import deque
+import sys
 
-# Define the size of the Sudoku board (9x9)
-BOARD_SIZE = 9
-SUBGRID_SIZE = 3
+sys.stdout = open("ac3_debug_output.txt", "w")
+# Get a board from the generator
+board = generate_random_solvable_board(seed_cells=30)
+print_board(board)
 
-# Define the domain for each cell (1-9)
-DOMAIN = set(range(1, 10))
+variables = [(i, j) for i in range(9) for j in range(9)]
 
-# Create a list to represent the board
-# Each cell is represented by its row and column indices
-def create_board() -> List[List[int]]:
-    return [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+def create_domains_from_board(board):
+    domains = {}
+    for var in variables:
+        i, j = var
+        if board[i][j] != 0:
+            domains[var] = {board[i][j]}
+        else:
+            domains[var] = set(range(1, 10))
+    return domains
 
-# Get all variables (cells) in the board
-def get_variables(board: List[List[int]]) -> List[Tuple[int, int]]:
-    return [(i, j) for i in range(BOARD_SIZE) for j in range(BOARD_SIZE)]
+def get_neighbors():
+    neighbors = {}
+    for var in variables:
+        row, col = var
+        related = set()
 
-# Get the domain for a specific cell
-def get_domain(board: List[List[int]], row: int, col: int) -> Set[int]:
-    if board[row][col] != 0:
-        return {board[row][col]}
-    return DOMAIN.copy()
+        # Row and column neighbors
+        for i in range(9):
+            if i != col:
+                related.add((row, i))
+            if i != row:
+                related.add((i, col))
 
-# Get all constraints (peers) for a given cell
-def get_constraints(row: int, col: int) -> List[Tuple[int, int]]:
-    constraints = set()
+        # Box neighbors
+        start_row, start_col = 3 * (row // 3), 3 * (col // 3)
+        for r in range(start_row, start_row + 3):
+            for c in range(start_col, start_col + 3):
+                if (r, c) != var:
+                    related.add((r, c))
+
+        neighbors[var] = related
+    return neighbors
+
+def ac3(domains, neighbors):
+    queue = deque([(xi, xj) for xi in variables for xj in neighbors[xi]])
+    while queue:
+        xi, xj = queue.popleft()
+        if revise(domains, xi, xj):
+            if not domains[xi]:
+                return False  # Domain wiped out
+            for xk in neighbors[xi] - {xj}:
+                queue.append((xk, xi))
+    return True
+
+def revise(domains, xi, xj):
+    revised = False
+    print(f"\nRevising domains for {xi} and {xj}:")
+    print(f"Before revision:")
+    print(f"  Domain of {xi}: {domains[xi]}")
+    print(f"  Domain of {xj}: {domains[xj]}")
     
-    # Add row constraints
-    for j in range(BOARD_SIZE):
-        if j != col:
-            constraints.add((row, j))
+    # Process the domain reduction
+    for x in set(domains[xi]):
+        if not any(x != y for y in domains[xj]):
+            domains[xi].remove(x)
+            print(f"  Removed {x} from domain of {xi} because it has no support in {xj}.")
+            revised = True
     
-    # Add column constraints
-    for i in range(BOARD_SIZE):
-        if i != row:
-            constraints.add((i, col))
+    if revised:
+        print(f"After revision:")
+        print(f"  Domain of {xi}: {domains[xi]}")
+        print(f"  Domain of {xj}: {domains[xj]}")
+    else:
+        print(f"No revision needed for {xi} and {xj}.")
     
-    # Add subgrid constraints
-    subgrid_row = (row // SUBGRID_SIZE) * SUBGRID_SIZE
-    subgrid_col = (col // SUBGRID_SIZE) * SUBGRID_SIZE
-    for i in range(subgrid_row, subgrid_row + SUBGRID_SIZE):
-        for j in range(subgrid_col, subgrid_col + SUBGRID_SIZE):
-            if i != row or j != col:
-                constraints.add((i, j))
-    
-    return list(constraints)
+    return revised
+domains = create_domains_from_board(board)
+neighbors = get_neighbors()
+print(domains)
+result = ac3(domains, neighbors)
+print("\nAC-3 Result:")
+print("Consistent" if result else "Inconsistent")
+
+# Optional: show reduced domains
+print("\nReduced Domains for Unfilled Cells:")
+for var in variables:
+     print(f"Cell {var}: {domains[var]}")
+     if len(domains[var]) == 1:
+        i, j = var
+        board[i][j] = next(iter(domains[var])) 
+print_board(board)
+   
+        
+sys.stdout.close()

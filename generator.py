@@ -70,6 +70,3 @@ def print_board(board):
             print("-" * 21)
 
 
-# Example usage
-board = generate_random_solvable_board(seed_cells=20)
-print_board(board)
