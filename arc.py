@@ -12,6 +12,10 @@ logging.basicConfig(
     format="%(message)s"
 )
 
+# Global counters for tracking pruning statistics
+REVISION_COUNT = 0
+DOMAINS_PRUNED = 0
+TOTAL_CONSTRAINT_CHECKS = 0
 
 def create_domains_from_board(board):
     domains = {}
@@ -43,43 +47,85 @@ def get_neighbors():
 
         neighbors[var] = related
     return neighbors
+
 def ac3(domains, neighbors):
+    # Reset global counters
+    global REVISION_COUNT, DOMAINS_PRUNED, TOTAL_CONSTRAINT_CHECKS
+    REVISION_COUNT = 0
+    DOMAINS_PRUNED = 0
+    TOTAL_CONSTRAINT_CHECKS = 0
+    
+    # Initial queue of all arcs
     queue = deque([(xi, xj) for xi in variables for xj in neighbors[xi]])
     logging.info("Starting AC-3 Algorithm\n" + "-"*30)
     log_board_state(domains, "Initial Board from Domains")
 
-    changes_made = True
-    while changes_made:
-        changes_made = False
-        while queue:
+    iterations = 0
+    
+    # Continue until no more changes are made
+    while queue:
+        iterations += 1
+        revisions_this_iteration = 0
+        domains_pruned_this_iteration = 0
+        
+        # Process current queue
+        queue_size = len(queue)
+        for _ in range(queue_size):
             xi, xj = queue.popleft()
+            REVISION_COUNT += 1
+            revisions_this_iteration += 1
+            
+            domains_pruned_before = DOMAINS_PRUNED
             if revise(domains, xi, xj):
-                changes_made = True
+                domains_pruned_this_iteration += (DOMAINS_PRUNED - domains_pruned_before)
+                
                 if not domains[xi]:
                     logging.info(f"Failure: domain of {xi} wiped out.\n")
                     return False
+                
+                # Add affected neighbors back to queue for next iteration
                 for xk in neighbors[xi] - {xj}:
-                    queue.append((xk, xi))
+                    if (xk, xi) not in queue:
+                        queue.append((xk, xi))
+        
+        # Log statistics for this iteration
+        logging.info(f"\nIteration {iterations} Stats:")
+        logging.info(f"  - Revisions: {revisions_this_iteration}")
+        logging.info(f"  - Domains pruned: {domains_pruned_this_iteration}")
+        if domains_pruned_this_iteration > 0:
+            log_board_state(domains, f"Board After AC-3 Iteration {iterations}")
+        logging.info("")
 
-        # After each full iteration of arc consistency
-        if changes_made:
-            log_board_state(domains, "Board After AC-3 Iteration")
-
+    # Log final statistics
+    logging.info("\n" + "="*50)
+    logging.info("AC-3 SUMMARY STATISTICS")
+    logging.info("="*50)
+    logging.info(f"Total iterations: {iterations}")
+    logging.info(f"Total revisions: {REVISION_COUNT}")
+    logging.info(f"Total domains pruned: {DOMAINS_PRUNED}")
+    logging.info(f"Total constraint checks: {TOTAL_CONSTRAINT_CHECKS}")
+    logging.info(f"Average domains pruned per revision: {DOMAINS_PRUNED/REVISION_COUNT if REVISION_COUNT else 0:.2f}")
+    logging.info("="*50 + "\n")
+    
     logging.info("AC-3 completed successfully.\n")
     log_board_state(domains, "Final Board After AC-3")
     return True
 
 
 def revise(domains, xi, xj):
+    global DOMAINS_PRUNED, TOTAL_CONSTRAINT_CHECKS
     revised = False
     removed = []
 
     for x in set(domains[xi]):
+        TOTAL_CONSTRAINT_CHECKS += 1
+        # Check if there's no value in domain of xj that satisfies the constraint
         if not any(x != y for y in domains[xj]):
-            old_domain = domains[xi]
+            old_domain = set(domains[xi])  # Make a copy to avoid modification during iteration
             domains[xi].remove(x)
             removed.append(x)
             revised = True
+            DOMAINS_PRUNED += 1
 
     if revised:
         log_msg = f"Revising arc ( {xi} , {xj} ): \n current domain of {xi} :{old_domain}\n current domain of {xj} :{domains[xj]} \n removed values {removed} from {xi}\n updated domain of {xi}: {domains[xi]}"
@@ -119,6 +165,27 @@ def select_unassigned_variable(domains):
                key=lambda var: len(domains[var]))
 
 def backtrack(domains, neighbors):
+    # Track backtracking statistics
+    backtrack_stats = {
+        "nodes_visited": 0,
+        "backtracks": 0,
+    }
+    
+    result = _backtrack(domains, neighbors, backtrack_stats)
+    
+    # Log backtracking statistics
+    logging.info("\n" + "="*50)
+    logging.info("BACKTRACKING STATISTICS")
+    logging.info("="*50)
+    logging.info(f"Nodes visited: {backtrack_stats['nodes_visited']}")
+    logging.info(f"Backtracks: {backtrack_stats['backtracks']}")
+    logging.info("="*50 + "\n")
+    
+    return result
+
+def _backtrack(domains, neighbors, stats):
+    stats["nodes_visited"] += 1
+    
     if is_complete(domains):
         return domains
 
@@ -128,8 +195,9 @@ def backtrack(domains, neighbors):
         new_domains[var] = {value}
 
         if ac3(new_domains, neighbors):
-            result = backtrack(new_domains, neighbors)
+            result = _backtrack(new_domains, neighbors, stats)
             if result:
                 return result
-
+    
+    stats["backtracks"] += 1
     return None
